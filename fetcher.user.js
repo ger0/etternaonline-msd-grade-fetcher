@@ -1,16 +1,18 @@
 // ==UserScript==
 // @name         Etterna Score Analyzer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Fetch and calculate MSD from "AAA" rank scores
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.min.js
 // @author       gero
 // @match        https://etternaonline.com/*
 // @grant        none
+// @run-at document-start
 // ==/UserScript==
+//
 // javascript sucks, sorry I don't know this language well
 
-let version = '1.1.1';
+let version = '1.1.2';
 
 const Grade = {
     A:          80.0,
@@ -20,6 +22,8 @@ const Grade = {
     AAAAA:      99.9935
 };
 
+const DIV_SHOW_NAME = "AAAMSD";
+
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -27,7 +31,7 @@ async function sleep(ms) {
 function display_overall(data) {
     console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${data.target_rank}`);
     console.log("Filtered scores:", data.list);
-    const aaa_body = document.querySelector('.AAAMSD');
+    const aaa_body = document.getElementById(DIV_SHOW_NAME);
     if (aaa_body) {
         aaa_body.textContent = `AAA MSD Overall: ${data.overall.toFixed(2)}`;
     }
@@ -63,7 +67,8 @@ function aggregate_scores (
 }
 
 async function fetch_page(username, curr_page, bearer) {
-    return fetch(`https://api.etternaonline.com/api/users/${username}/scores?page=${curr_page}`, {
+    return fetch(`https://api.etternaonline.com/api/users/${username}/scores?page=${curr_page}`
+        + `&limit=200&sort=-datetime&filter[valid]=1`, {
         method: "GET",
         headers: {
             "Authorization": `${bearer}`,
@@ -111,8 +116,6 @@ async function fetch_scores(username, target_rank) {
             if (it.wife > target_rank && it.valid === true) {
                 const name = it.song.name;
                 const overall = it.overall;
-                console.log(`[DEBUG]: ${name}: ${overall}, page: ${curr_page}`);
-                
                 list.push({ name, overall });
             }
         });
@@ -126,7 +129,7 @@ async function fetch_scores(username, target_rank) {
         // rate limit 
         sleep(200);
     } catch (error) {
-        console.error("Failed to fetch schores:", error);
+        console.error("Failed to fetch scores:", error);
         break;
     }
     list.sort((a, b) => b.overall - a.overall);
@@ -147,14 +150,15 @@ async function fetch_scores(username, target_rank) {
     }));
 }
 
-(async function() {
-    'use strict';
-
+async function run(link = null) {
     const target_rank = Grade.AAA;
-    const path = window.location.pathname;
+    const path = link == null   ? window.location.pathname
+                                : link;
     const split = path.split('/').filter(segment => segment.length > 0);
-    if (split.length < 1) {
-        console.error("Failed to detect username!");
+    if (split.length != 2) {
+        console.error("Failed to detect username, wrong page!");
+        return;
+    } else if (split[0] !== 'users') {
         return;
     }
     const raw_username = split[1];
@@ -162,23 +166,32 @@ async function fetch_scores(username, target_rank) {
     console.log(`Detected username: ${username}`);
 
     const card_body = document.querySelector('.rank');
-    if (card_body) {
+    if (!card_body) {
+        const div = document.createElement("div");
+        document.classList.add("rank");
+        card_body = div;
+    }
+    if (card_body && !document.getElementById(DIV_SHOW_NAME)) {
         card_body.style.display = 'grid';
         card_body.style.placeItems = 'center';
 
+        const AAAMSD = document.createElement('div');
+        AAAMSD.id = DIV_SHOW_NAME
+        AAAMSD.classList.add(DIV_SHOW_NAME);
+        AAAMSD.style.marginTop = '1em';
+        AAAMSD.style.fontWeight = 'bold';
+        AAAMSD.textContent = '';
+
         const button = document.createElement('button');
         button.textContent = 'Fetch AAA Overall MSD';
+        button.classList.add("btn");
+        button.classList.add("btn-success");
         button.style.marginTop = '1em';
+        button.data = "button";
         button.onclick = function() {
             fetch_scores(username, target_rank);
         };
         card_body.appendChild(button);
-
-        const AAAMSD = document.createElement('div');
-        AAAMSD.classList.add('AAAMSD');
-        AAAMSD.style.marginTop = '1em';
-        AAAMSD.style.fontWeight = 'bold';
-        AAAMSD.textContent = '';
         card_body.appendChild(AAAMSD);
     }
 
@@ -200,4 +213,40 @@ async function fetch_scores(username, target_rank) {
         return;
     }
     await fetch_scores(username, target_rank);
+}
+
+(async function() {
+    'use strict';
+
+    // Click interception 
+    document.addEventListener('click', async(event) => {
+        const link = event.target.closest('a');
+        if (link && link.href) {
+            const path = link.getAttribute('href');
+            await sleep(2000); // yeah yeah
+            run(path);
+        }
+    }, true);
+
+    // History state change interception
+    const history = (type) => {
+        const original = history[type];
+        return async function() {
+            const result = original.apply(this, arguments);
+            run();
+            return result;
+        };
+    };
+
+    history.pushState = history('pushState');
+    history.replaceState = history('replaceState');
+
+    // Back/Forward buttons interception
+    window.addEventListener('popstate', () => {
+        run();
+    });
+    document.addEventListener("DOMContentLoaded", function() {
+        console.log("DOM fully loaded and parsed");
+        run();
+    });
 })();
