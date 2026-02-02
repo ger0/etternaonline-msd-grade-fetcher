@@ -2,7 +2,7 @@
 
 ## How to use the script:
 1. Make sure you have greasemonkey/tampermonkey installed in your browser.
-2. Open the script in your browser (click "Raw" butotn on GitHub, it should automatically prompt to install the script).
+2. Install by clicking [here](https://raw.githubusercontent.com/ger0/etternaonline-msd-grade-fetcher/refs/heads/main/fetcher.user.js) or, open the script in your browser (click "Raw" butotn on GitHub, it should automatically prompt to install the script).
 3. Once installed, navigate to an Etterna score page (e.g., https://etternaonline.com/users/USERNAME) and check the console (F12) for the MSD values. 
 
 WIP: Currently only fetches for AAA scores, DOM modifications will be added later.
