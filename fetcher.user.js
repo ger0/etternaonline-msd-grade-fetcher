@@ -18,13 +18,9 @@ async function sleep(ms) {
 function display_overall(data) {
     console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${data.target_rank}`);
     console.log("Filtered scores:", data.list);
-    const card_body = document.querySelector('.rank');
-    if (card_body) {
-        const result = document.createElement('div');
-        result.style.marginTop = '1em';
-        result.style.fontWeight = 'bold';
-        result.textContent = `(AAA Rank Overall: ${data.overall.toFixed(2)}`;
-        card_body.appendChild(result);
+    const aaa_body = document.querySelector('.AAAMSD');
+    if (aaa_body) {
+        aaa_body.textContent = `AAA MSD Overall: ${data.overall.toFixed(2)}`;
     }
 }
 
@@ -158,6 +154,9 @@ async function fetch_scores(username, target_rank) {
 
     const card_body = document.querySelector('.rank');
     if (card_body) {
+        card_body.style.display = 'grid';
+        card_body.style.placeItems = 'center';
+
         const button = document.createElement('button');
         button.textContent = 'Fetch AAA Overall MSD';
         button.style.marginTop = '1em';
@@ -165,6 +164,13 @@ async function fetch_scores(username, target_rank) {
             fetch_scores(username, target_rank);
         };
         card_body.appendChild(button);
+
+        const AAAMSD = document.createElement('div');
+        AAAMSD.classList.add('AAAMSD');
+        AAAMSD.style.marginTop = '1em';
+        AAAMSD.style.fontWeight = 'bold';
+        AAAMSD.textContent = '';
+        card_body.appendChild(AAAMSD);
     }
 
     let should_calc = true;
