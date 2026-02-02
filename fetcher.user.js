@@ -10,9 +10,22 @@
 // ==/UserScript==
 // javascript sucks, sorry I don't know this language well
 
-
+let version = '1.1';
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function display_overall(data) {
+    console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${data.target_rank}`);
+    console.log("Filtered scores:", data.list);
+    const card_body = document.querySelector('.card-body');
+    if (card_body) {
+        const result = document.createElement('div');
+        result.style.marginTop = '1em';
+        result.style.fontWeight = 'bold';
+        result.textContent = `(AAA Rank Overall: ${data.overall.toFixed(2)}`;
+        card_body.appendChild(result);
+    }
 }
 
 // source: https://github.com/etternagame/etterna/blob/master/src/Etterna/MinaCalc/MinaCalcHelpers.h#L35
@@ -47,12 +60,7 @@ function aggregate_scores (
 (async function() {
     'use strict';
 
-    // Configuration
-    const bearer = localStorage.getItem('auth._token.local');
-    if (!bearer) { 
-        console.error("Token not found! Make sure you are logged in...");
-        return;
-    }
+    const target_rank = "AAA";
     const path = window.location.pathname;
     const split = path.split('/').filter(segment => segment.length > 0);
     if (split.length < 1) {
@@ -62,8 +70,30 @@ function aggregate_scores (
     const raw_username = split[1];
     const username = raw_username.split(/[#?\/]/)[0];
     console.log(`Detected username: ${username}`);
-    const target_rank = "AAA";
 
+    let should_calc = true;
+    const last_fetch = localStorage.getItem(`etterna_aaa_overall_${username}`); 
+    let saved = null;
+    if (last_fetch) {
+        saved = JSON.parse(last_fetch);
+        if (!saved) {
+            throw new Error("Failed to parse saved data from local storage!");
+        }
+        if (saved.version === version) {
+            should_calc = false;
+        }
+    }
+    if (!should_calc) {
+        console.log("Using cached data from local storage...")
+        display_overall({ overall: saved.overall, target_rank: target_rank, list: saved.list });
+        return;
+    }
+    // Configuration
+    const bearer = localStorage.getItem('auth._token.local');
+    if (!bearer) { 
+        console.error("Token not found! Make sure you are logged in...");
+        return;
+    }
     async function fetch_scores() {
         let list = [];
         // let avg = 0.0;
@@ -115,10 +145,14 @@ function aggregate_scores (
             0.0,
             10.24
         );
-        console.log(`Calculated overall MSD: ${overall.toFixed(2)} for rank ${target_rank}`);
-        console.log("Filtered scores:", list);
+        display_overall({ overall, target_rank, list });
+        // Save to local storage
+        localStorage.setItem(`etterna_aaa_overall_${username}`, JSON.stringify({
+            version: version,
+            overall: overall,
+            list: list
+        }));
     }
-
     // Run the function
     fetch_scores();
 
