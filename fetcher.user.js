@@ -57,6 +57,16 @@ function aggregate_scores (
     return rating * result_mul;
 }
 
+async function fetch_page(username, curr_page, bearer) {
+    return fetch(`https://api.etternaonline.com/api/users/${username}/scores?page=${curr_page}`, {
+        method: "GET",
+        headers: {
+            "Authorization": `${bearer}`,
+            "Accept": "application/json"
+        }
+    });
+}
+
 async function fetch_scores(username, target_rank) {
     const bearer = localStorage.getItem('auth._token.local');
     if (!bearer) { 
@@ -69,16 +79,26 @@ async function fetch_scores(username, target_rank) {
     let max_pages = 1;
 
     while (curr_page <= max_pages) try {
-        const response = await fetch(`https://api.etternaonline.com/api/users/${username}/scores?page=${curr_page}`, {
-            method: "GET",
-            headers: {
-                "Authorization": `${bearer}`,
-                "Accept": "application/json"
-            }
-        });
+        let retryTime = 5000;
+        let maxRetries = 5;
+        let response;
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
+            response = await fetch_page(username, curr_page, bearer);
+
+            if (response.ok) {
+                break;
+            } else {
+                console.error(response);
+                console.error(`Attempt ${retryCount + 1}: Something went wrong with EO connection, status: ${response.status}. Retrying in ${retryTime/1000} seconds.`);
+                await sleep(retryTime);
+
+                retryTime += 5000;
+            }
+
+            if (retryCount === maxRetries - 1) {
+                throw new Error("Retry count exceeded, giving up.");
+            }
         }
 
         const json = await response.json();
