@@ -209,13 +209,15 @@ async function run(link = null) {
         button.style.marginTop = '1em';
         button.data = "button";
         button.onclick = function() {
+            button.style.display="none";
+            AAAMSD.textContent = "Score fetching 0%"
             fetch_scores(username, target_rank);
         };
         card_body.appendChild(button);
         card_body.appendChild(AAAMSD);
     }
 
-    let should_calc = true;
+    let has_cached = false;
     const last_fetch = localStorage.getItem(`etterna_aaa_overall_${username}`); 
     let saved = null;
     if (last_fetch) {
@@ -224,15 +226,14 @@ async function run(link = null) {
             throw new Error("Failed to parse saved data from local storage!");
         }
         if (saved.version === version) {
-            should_calc = false;
+            has_cached = true;
         }
     }
-    if (!should_calc) {
+    if (has_cached) {
         console.log("Using cached data from local storage...")
         display_overall({ overall: saved.overall, target_rank: target_rank, list: saved.list }, username);
         return;
     }
-    await fetch_scores(username, target_rank);
 }
 
 (async function() {
