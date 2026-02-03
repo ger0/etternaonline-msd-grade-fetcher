@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Etterna Score Analyzer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  Fetch and calculate MSD from "AAA" rank scores
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.min.js
-// @author       gero
+// @author       gero, lyko
 // @match        https://etternaonline.com/*
 // @grant        none
 // @run-at document-start
@@ -12,7 +12,7 @@
 //
 // javascript sucks, sorry I don't know this language well
 
-let version = '1.1.3';
+let version = '1.1.4';
 
 const Grade = {
     A:          80.0,
@@ -22,10 +22,21 @@ const Grade = {
     AAAAA:      99.9935
 };
 
-const DIV_SHOW_NAME = "AAAMSD";
+const DIV_SHOW_NAME_AAA = "AAA_MSD";
+const DIV_SHOW_NAME_AAAA = "AAAA_MSD";
 
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// not sure if it's necessary to do it this way
+function get_grade(obj, value) {
+    for (const [key, val] of Object.entries(obj)) {
+        if (val === value) {
+            return key;
+        }
+    }
+    return null;
 }
 
 // helper function to extract username from the URL / href link
@@ -42,24 +53,28 @@ function get_link_username(path) {
 }
 
 
-function display_overall(data, username) {
+async function display_overall(data, username, grade) {
     if (username != get_link_username(window.location.pathname)) {
         return;
     }
-    console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${data.target_rank}`);
+    console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${get_grade(Grade, data.target_rank)}`);
     console.log("Filtered scores:", data.list);
-    const aaa_body = document.getElementById(DIV_SHOW_NAME);
-    if (aaa_body) {
-        aaa_body.textContent = `AAA MSD Overall: ${data.overall.toFixed(2)}`;
+    const rank_body = document.getElementById(`${grade}_MSD`);
+    if (rank_body) {
+        if (data.overall <= 0.02) {
+            rank_body.textContent = `No ${grade}s!`;
+            return;
+        }
+        rank_body.textContent = `${grade} MSD Overall: ${data.overall.toFixed(2)}`;
     }
 }
 
 // source: https://github.com/etternagame/etterna/blob/master/src/Etterna/MinaCalc/MinaCalcHelpers.h#L35
 function aggregate_scores (
-    score_list, 
-    delta_mul, 
-    result_mul, 
-    rating, 
+    score_list,
+    delta_mul,
+    result_mul,
+    rating,
     resolution
 ) {
     for (let i = 0; i < 11; i++) {
@@ -94,14 +109,13 @@ async function fetch_page(username, curr_page, bearer) {
     });
 }
 
-async function fetch_scores(username, target_rank) {
+async function fetch_scores(username) {
     const bearer = localStorage.getItem('auth._token.local');
-    if (!bearer) { 
+    if (!bearer) {
         console.error("Token not found! Make sure you are logged in...");
         return;
     }
     let list = [];
-    // let avg = 0.0;
     let curr_page = 1;
     let max_pages = 1;
 
@@ -130,13 +144,24 @@ async function fetch_scores(username, target_rank) {
         const json = await response.json();
         const data = json.data || [];
         data.forEach(it => {
-            if (it.wife > target_rank && it.valid === true) {
+            if (it.wife >= Grade.AAA && it.valid === true) {
                 const name = it.song.name;
                 const overall = it.overall;
-                list.push({ name, overall });
+                const stream = it.stream;
+                const jumpstream = it.jumpstream;
+                const handstream = it.handstream;
+                const jacks = it.jacks;
+                const chordjacks = it.chordjacks;
+                const stamina = it.stamina;
+                const technical = it.technical;
+                const wife = it.wife;
+                const rate = it.rate;
+                const datetime = it.datetime;
+                // TODO: actually make most of those variables useful
+                list.push({name, overall, stream, jumpstream, handstream, jacks, chordjacks, stamina, technical, wife, rate, datetime});
             }
         });
-        const total_pages = json.meta.last_page || null; 
+        const total_pages = json.meta.last_page || null;
         if (!total_pages) {
             break;
         }
@@ -149,16 +174,24 @@ async function fetch_scores(username, target_rank) {
         }
 
         console.log(`Fetched page: ${curr_page} / ${max_pages} from player's scores`);
-        let progress = document.getElementById(DIV_SHOW_NAME);
+        let progress = document.getElementById(DIV_SHOW_NAME_AAA);
         progress.textContent = `Score fetching ${(curr_page * 100.0 / max_pages).toFixed(0)}%`;
         curr_page++;
 
-        // rate limit 
+        // rate limit
         sleep(200);
     } catch (error) {
         console.error("Failed to fetch scores:", error);
         break;
     }
+    return list;
+}
+
+async function process_list(list, target_rank) {
+    //sanity check
+    if (!Array.isArray(list)) {
+        console.log('code sucks');
+    };
     list.sort((a, b) => b.overall - a.overall);
     list.length = Math.min(list.length, 250);
     const overall = aggregate_scores(
@@ -168,13 +201,25 @@ async function fetch_scores(username, target_rank) {
         0.0,
         10.24
     );
-    display_overall({ overall, target_rank, list }, username);
+    await display_overall({ overall, target_rank, list }, username, get_grade(Grade, target_rank));
     // Save to local storage
-    localStorage.setItem(`etterna_aaa_overall_${username}`, JSON.stringify({
+    localStorage.setItem(`etterna_${get_grade(Grade, target_rank)}_overall_${username}`, JSON.stringify({
         version: version,
         overall: overall,
         list: list
     }));
+}
+
+async function filter_list(list, target_rank) {
+    let filtered_list = [];
+
+    list.forEach(it => {
+        if (it.wife >= target_rank) {
+            filtered_list.push(it);
+        }
+    });
+
+    return filtered_list;
 }
 
 async function run(link = null) {
@@ -191,47 +236,65 @@ async function run(link = null) {
         document.classList.add("rank");
         card_body = div;
     }
-    if (card_body && !document.getElementById(DIV_SHOW_NAME)) {
+    if (card_body && !document.getElementById(DIV_SHOW_NAME_AAA) && !document.getElementById(DIV_SHOW_NAME_AAAA)) {
         card_body.style.display = 'grid';
         card_body.style.placeItems = 'center';
 
-        const AAAMSD = document.createElement('div');
-        AAAMSD.id = DIV_SHOW_NAME
-        AAAMSD.classList.add(DIV_SHOW_NAME);
-        AAAMSD.style.marginTop = '1em';
-        AAAMSD.style.fontWeight = 'bold';
-        AAAMSD.textContent = '';
+        const AAA_MSD = document.createElement('div');
+        AAA_MSD.id = DIV_SHOW_NAME_AAA;
+        AAA_MSD.style.marginTop = '1em';
+        AAA_MSD.style.fontWeight = 'bold';
+        AAA_MSD.textContent = '';
+
+        const AAAA_MSD = document.createElement('div');
+        AAAA_MSD.id = DIV_SHOW_NAME_AAAA;
+        AAAA_MSD.style.fontWeight = 'bold';
+        AAAA_MSD.textContent = '';
 
         const button = document.createElement('button');
-        button.textContent = 'Fetch AAA Overall MSD';
+        button.textContent = 'Fetch Rank MSD';
         button.classList.add("btn");
         button.classList.add("btn-success");
         button.style.marginTop = '1em';
         button.data = "button";
-        button.onclick = function() {
+        button.onclick = async function() {
             button.style.display="none";
-            AAAMSD.textContent = "Score fetching 0%"
-            fetch_scores(username, target_rank);
+            AAA_MSD.textContent = "Score fetching 0%"
+
+            const list = await fetch_scores(username, target_rank);
+
+            const aaa_list = await filter_list(list, Grade.AAA);
+            const aaaa_list = await filter_list(list, Grade.AAAA);
+
+            await process_list(aaa_list, Grade.AAA);
+            await process_list(aaaa_list, Grade.AAAA);
         };
+
         card_body.appendChild(button);
-        card_body.appendChild(AAAMSD);
+        card_body.appendChild(AAA_MSD);
+        card_body.appendChild(AAAA_MSD);
     }
 
     let has_cached = false;
-    const last_fetch = localStorage.getItem(`etterna_aaa_overall_${username}`); 
-    let saved = null;
-    if (last_fetch) {
-        saved = JSON.parse(last_fetch);
-        if (!saved) {
+    const last_fetch_aaa = localStorage.getItem(`etterna_AAA_overall_${username}`);
+    const last_fetch_aaaa = localStorage.getItem(`etterna_AAAA_overall_${username}`);
+    let saved_aaa;
+    let saved_aaaa;
+    if (last_fetch_aaa && last_fetch_aaaa) {
+        saved_aaa = JSON.parse(last_fetch_aaa);
+        saved_aaaa = JSON.parse(last_fetch_aaaa);
+        console.log('ladies and gentlemen we got him');
+        if (!saved_aaa && !saved_aaaa) {
             throw new Error("Failed to parse saved data from local storage!");
         }
-        if (saved.version === version) {
+        if (saved_aaa.version === version && saved_aaaa.version === version) {
             has_cached = true;
         }
     }
     if (has_cached) {
         console.log("Using cached data from local storage...")
-        display_overall({ overall: saved.overall, target_rank: target_rank, list: saved.list }, username);
+        display_overall({ overall: saved_aaa.overall, target_rank: target_rank, list: saved_aaa.list }, username, 'AAA');
+        display_overall({ overall: saved_aaaa.overall, target_rank: target_rank, list: saved_aaaa.list }, username, 'AAAA');
         return;
     }
 }
@@ -239,7 +302,7 @@ async function run(link = null) {
 (async function() {
     'use strict';
 
-    // Click interception 
+    // Click interception
     document.addEventListener('click', async(event) => {
         const link = event.target.closest('a');
         if (link && link.href) {
