@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Etterna Score Analyzer
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Fetch and calculate MSD from "AAA" rank scores
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.min.js
 // @author       gero
@@ -12,7 +12,7 @@
 //
 // javascript sucks, sorry I don't know this language well
 
-let version = '1.1.2';
+let version = '1.1.3';
 
 const Grade = {
     A:          80.0,
@@ -28,7 +28,24 @@ async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function display_overall(data) {
+// helper function to extract username from the URL / href link
+function get_link_username(path) {
+    const split = path.split('/').filter(segment => segment.length > 0);
+    if (split.length != 2) {
+        console.error("Failed to detect username, wrong page!");
+        return null;
+    } else if (split[0] !== 'users') {
+        return null;
+    }
+    const raw_username = split[1];
+    return username = raw_username.split(/[#?\/]/)[0];
+}
+
+
+function display_overall(data, username) {
+    if (username != get_link_username(window.location.pathname)) {
+        return;
+    }
     console.log(`Calculated overall MSD: ${data.overall.toFixed(2)} for rank ${data.target_rank}`);
     console.log("Filtered scores:", data.list);
     const aaa_body = document.getElementById(DIV_SHOW_NAME);
@@ -124,8 +141,18 @@ async function fetch_scores(username, target_rank) {
             break;
         }
         max_pages = total_pages;
+
+        // sanity check
+        if (get_link_username(window.location.pathname) !== username) {
+            console.log(`cancelling score fetching for: ${username}`);
+            return;
+        }
+
         console.log(`Fetched page: ${curr_page} / ${max_pages} from player's scores`);
+        let progress = document.getElementById(DIV_SHOW_NAME);
+        progress.textContent = `Score fetching ${(curr_page * 100.0 / max_pages).toFixed(0)}%`;
         curr_page++;
+
         // rate limit 
         sleep(200);
     } catch (error) {
@@ -141,7 +168,7 @@ async function fetch_scores(username, target_rank) {
         0.0,
         10.24
     );
-    display_overall({ overall, target_rank, list });
+    display_overall({ overall, target_rank, list }, username);
     // Save to local storage
     localStorage.setItem(`etterna_aaa_overall_${username}`, JSON.stringify({
         version: version,
@@ -154,15 +181,8 @@ async function run(link = null) {
     const target_rank = Grade.AAA;
     const path = link == null   ? window.location.pathname
                                 : link;
-    const split = path.split('/').filter(segment => segment.length > 0);
-    if (split.length != 2) {
-        console.error("Failed to detect username, wrong page!");
-        return;
-    } else if (split[0] !== 'users') {
-        return;
-    }
-    const raw_username = split[1];
-    const username = raw_username.split(/[#?\/]/)[0];
+    const username = get_link_username(path);
+    if (!username) { return; }
     console.log(`Detected username: ${username}`);
 
     const card_body = document.querySelector('.rank');
@@ -209,7 +229,7 @@ async function run(link = null) {
     }
     if (!should_calc) {
         console.log("Using cached data from local storage...")
-        display_overall({ overall: saved.overall, target_rank: target_rank, list: saved.list });
+        display_overall({ overall: saved.overall, target_rank: target_rank, list: saved.list }, username);
         return;
     }
     await fetch_scores(username, target_rank);
@@ -242,11 +262,11 @@ async function run(link = null) {
     history.replaceState = history('replaceState');
 
     // Back/Forward buttons interception
-    window.addEventListener('popstate', () => {
+    window.addEventListener('popstate', async () => {
+        await sleep(2000);
         run();
     });
     document.addEventListener("DOMContentLoaded", function() {
-        console.log("DOM fully loaded and parsed");
         run();
     });
 })();
